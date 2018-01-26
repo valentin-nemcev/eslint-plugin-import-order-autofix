@@ -16,6 +16,45 @@ jscodeshift.types.finalize()
 const defaultGroups = ['builtin', 'external', 'parent', 'sibling', 'index']
 
 // REPORTING
+/**
+ * NOTE: Taken from https://github.com/eslint/eslint/blob/6ab04b553ec3ecb65ed3473b3f873b5a72af3675/lib/report-translator.js#L126
+ * to support older versions of eslint
+ *
+ * Merges the given fixes array into one.
+ * @param {Fix[]} fixes The fixes to merge.
+ * @param {SourceCode} sourceCode The source code object to get the text between fixes.
+ * @returns {{text: string, range: [number, number]}} The merged fixes
+ */
+function mergeFixes(fixes, sourceCode) {
+  function compareFixesByRange(a, b) {
+    return a.range[0] - b.range[0] || a.range[1] - b.range[1]
+  }
+  if (fixes.length === 0) {
+    return null
+  }
+  if (fixes.length === 1) {
+    return fixes[0]
+  }
+
+  fixes.sort(compareFixesByRange)
+
+  const originalText = sourceCode.text
+  const start = fixes[0].range[0]
+  const end = fixes[fixes.length - 1].range[1]
+  let text = ''
+  let lastPos = Number.MIN_SAFE_INTEGER
+
+  for (const fix of fixes) {
+    if (fix.range[0] >= 0) {
+      text += originalText.slice(Math.max(0, start, lastPos), fix.range[0])
+    }
+    text += fix.text
+    lastPos = fix.range[1]
+  }
+  text += originalText.slice(Math.max(0, start, lastPos), end)
+
+  return { range: [start, end], text }
+}
 
 function reverse(array) {
   return array.map(function (v) {
@@ -75,19 +114,19 @@ function fixOutOfOrder(context, firstNode, secondNode, order) {
     context.report({
       node: secondNode.node,
       message: msg(),
-      fix: fixer => [
+      fix: fixer => mergeFixes([
         fixer.insertTextBefore(firstRoot.node, newCode + '\n'),
         fixer.remove(secondRoot.node),
-      ],
+      ], sourceCode),
     })
   } else if (order === 'after') {
     context.report({
       node: secondNode.node,
       message: msg(),
-      fix: fixer => [
+      fix: fixer => mergeFixes([
         fixer.insertTextAfter(firstRoot.node, '\n' + newCode),
         fixer.remove(secondRoot.node),
-      ],
+      ], sourceCode),
     })
   }
 }
